@@ -14,14 +14,18 @@ async function load_rom(): Promise<Uint8Array> {
     return new Uint8Array(romData);
 }
 
-async function run() {
+async function start() {
     let cartData = await load_rom();
  
     let cart = new Cartridge(cartData);
+    cart.load(mem);
 
-    setInterval(function() {
-        cpu.run()
-    }, 1000);
+    run()
 }
 
-run()
+function run() {
+    cpu.run()
+    setTimeout(run, 100)
+}
+
+start()
