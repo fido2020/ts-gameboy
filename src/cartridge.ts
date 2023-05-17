@@ -36,6 +36,30 @@ enum DestinationCode {
     Other,
 };
 
-class Cartridge {
+const CART_OFFSET_TITLE = 0x134;
+const CART_TITLE_END = 0x142;
+const CART_OFFSET_SYSTEM_TYPE = 0x143;
+const CART_OFFSET_SUPER_GB = 0x146;
+const CART_OFFSET_TYPE = 0x147;
+const CART_OFFSET_ROM_SIZE = 0x148;
+const CART_OFFSET_RAM_SIZE = 0x149;
+
+export class Cartridge {
+    constructor(data: Uint8Array) {
+        this.data = data;
+
+        let titleData = data.slice(CART_OFFSET_TITLE, CART_TITLE_END);
+        this.title = new TextDecoder("ascii").decode(titleData);
+
+        this.type = data[CART_OFFSET_TYPE]
+        this.romSize = data[CART_OFFSET_ROM_SIZE]
+        this.ramSize = data[CART_OFFSET_RAM_SIZE]
+    }
+
     public data: Uint8Array;
+    public title: string;
+
+    public type: CartridgeType;
+    public romSize: ROMSize;
+    public ramSize: RAMSize;
 };
