@@ -26,13 +26,26 @@ export class CPU {
 
     initialize() {
         this.r_pc = 0x100;
+        this.r_a = 0;
+        this.r_b = 0;
+        this.r_c = 0;
+        this.r_d = 0;
+        this.r_e = 0;
+        this.r_h = 0;
+        this.r_l = 0;
+
+        this.r_sp = 0;
+        this.r_f = 0;
     }
 
     run() {
         let opcode = this.mem.read_byte(this.r_pc)
         this.pc_inc(1);
 
-        console.log(`pc: ${ this.r_pc.toString(16) }, op: ${ opcode.toString(16) }`)
+        console.log(`pc: ${ this.r_pc.toString(16) }, op: ${ opcode.toString(16) }`);
+        console.log(`a: ${ this.r_a.toString(16) }, b: ${ this.r_b.toString(16) }, \
+c: ${this.r_c.toString(16)}, d: ${this.r_d.toString(16)}, e: ${this.r_e.toString(16)}, \
+h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
 
         let op = this.instr[opcode];
         if(op == this.op_stub) {
@@ -1224,7 +1237,7 @@ export class CPU {
     }
 
     op_jp_nc_nn() {
-        if((~this.r_c) & FlagsRegister.Z) {
+        if((~this.r_c) & FlagsRegister.C) {
             this.r_pc = this.mem.read_word(this.r_pc);
         } else {
             this.pc_inc(2);
@@ -1232,7 +1245,7 @@ export class CPU {
     }
 
     op_jp_c_nn() {
-        if(this.r_c & FlagsRegister.Z) {
+        if(this.r_c & FlagsRegister.C) {
             this.r_pc = this.mem.read_word(this.r_pc);
         } else {
             this.pc_inc(2);
@@ -1246,16 +1259,16 @@ export class CPU {
     op_jr_n() {
         let n = this.mem.read_byte(this.r_pc);
         // Subtract one since the program counter has already been incremented
-        // TODO: work out how to do this properly since n is signed
-        console.log("warning JR does not handle signed values")
-        this.r_pc = this.r_pc - 1 + n;
+
+        // Do some javascript fuckery to make n signed,
+        // bitwise operations are 32-bit so force a sign extension
+        this.r_pc = this.r_pc - 1 + (n << 24 >> 24);
     }
 
     op_jr_nz() {
         let n = this.mem.read_byte(this.r_pc);
         if((~this.r_f) & FlagsRegister.Z) {
-            console.log("warning JR does not handle signed values")
-            this.r_pc = this.r_pc - 1 + n;
+            this.r_pc = this.r_pc - 1 + (n << 24 >> 24);
         } else {
             this.pc_inc(1);
         }
@@ -1264,8 +1277,7 @@ export class CPU {
     op_jr_z() {
         let n = this.mem.read_byte(this.r_pc);
         if(this.r_f & FlagsRegister.Z) {
-            console.log("warning JR does not handle signed values")
-            this.r_pc = this.r_pc - 1 + n;
+            this.r_pc = this.r_pc - 1 + (n << 24 >> 24);
         } else {
             this.pc_inc(1);
         }
@@ -1273,9 +1285,8 @@ export class CPU {
 
     op_jr_nc() {
         let n = this.mem.read_byte(this.r_pc);
-        if((~this.r_c) & FlagsRegister.Z) {
-            console.log("warning JR does not handle signed values")
-            this.r_pc = this.r_pc - 1 + n;
+        if((~this.r_c) & FlagsRegister.C) {
+            this.r_pc = this.r_pc - 1 + (n << 24 >> 24);
         } else {
             this.pc_inc(1);
         }
@@ -1283,9 +1294,8 @@ export class CPU {
 
     op_jr_c() {
         let n = this.mem.read_byte(this.r_pc);
-        if(this.r_c & FlagsRegister.Z) {
-            console.log("warning JR does not handle signed values")
-            this.r_pc = this.r_pc - 1 + n;
+        if(this.r_c & FlagsRegister.C) {
+            this.r_pc = this.r_pc - 1 + (n << 24 >> 24);
         } else {
             this.pc_inc(1);
         }
