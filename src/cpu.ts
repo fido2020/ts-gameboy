@@ -40,7 +40,7 @@ export class CPU {
     }
 
     op_ld_b_n() {
-        
+
     }
 
     op_ld_c_n() {
@@ -92,8 +92,8 @@ export class CPU {
         this.r_a = this.r_l;
     }
 
-    op_ld_a_hl() {
-
+    op_ld_a_m_hl() {
+        this.r_a = this.mem.read_byte(this.r_hl);
     }
 
     // LD b, r
@@ -121,6 +121,10 @@ export class CPU {
         this.r_b = this.r_l;
     }
 
+    op_ld_b_m_hl() {
+        this.r_b = this.mem.read_byte(this.r_hl);
+    }
+
     // LD c, r
     op_ld_c_b() {
         this.r_c = this.r_b;
@@ -146,6 +150,125 @@ export class CPU {
         this.r_c = this.r_l;
     }
 
+    op_ld_c_m_hl() {
+        this.r_c = this.mem.read_byte(this.r_hl);
+    }
+
+    // LD d, r
+    op_ld_d_b() {
+        this.r_d = this.r_b;
+    }
+
+    op_ld_d_c() {
+        this.r_d = this.r_c;
+    }
+
+    op_ld_d_d() {
+
+    }
+
+    op_ld_d_e() {
+        this.r_d = this.r_e;
+    }
+
+    op_ld_d_h() {
+        this.r_d = this.r_h;
+    }
+
+    op_ld_d_l() {
+        this.r_d = this.r_l;
+    }
+
+    op_ld_d_m_hl() {
+        this.r_d = this.mem.read_byte(this.r_hl);
+    }
+
+    // LD e, r
+    op_ld_e_b() {
+        this.r_e = this.r_b;
+    }
+
+    op_ld_e_c() {
+        this.r_e = this.r_c;
+    }
+
+    op_ld_e_d() {
+        this.r_e = this.r_d;
+    }
+
+    op_ld_e_e() {
+    }
+
+    op_ld_e_h() {
+        this.r_e = this.r_h;
+    }
+
+    op_ld_e_l() {
+        this.r_e = this.r_l;
+    }
+
+    op_ld_e_m_hl() {
+        this.r_e = this.mem.read_byte(this.r_hl);
+    }
+
+    // LD h, r
+    op_ld_h_b() {
+        this.r_h = this.r_b;
+    }
+
+    op_ld_h_c() {
+        this.r_h = this.r_c;
+    }
+
+    op_ld_h_d() {
+        this.r_h = this.r_d;
+    }
+
+    op_ld_h_e() {
+        this.r_h = this.r_e;
+    }
+
+    op_ld_h_h() {
+
+    }
+
+    op_ld_h_l() {
+        this.r_h = this.r_l;
+    }
+
+    op_ld_h_m_hl() {
+        this.r_h = this.mem.read_byte(this.r_hl);
+    }
+
+    // LD l, r
+    op_ld_l_b() {
+        this.r_l = this.r_b;
+    }
+
+    op_ld_l_c() {
+        this.r_l = this.r_c;
+    }
+
+    op_ld_l_d() {
+        this.r_l = this.r_d;
+    }
+
+    op_ld_l_e() {
+        this.r_l = this.r_e;
+    }
+
+    op_ld_l_h() {
+        this.r_l = this.r_h;
+    }
+
+    op_ld_l_l() {
+
+    }
+
+    op_ld_l_m_hl() {
+        this.r_l = this.mem.read_byte(this.r_hl);
+    }
+
     private mem: Memory;
 
     private r_a: number;
@@ -161,33 +284,42 @@ export class CPU {
     private r_l: number;
 
     private r_sp: number;
-    private r_pc: number;
+    public r_pc: number;
 
-    private get af() {
-        return (this.r_a << 16) | this.r_b;
+    private get r_af() {
+        return (this.r_f << 8) | this.r_a;
     }
 
-    private set af(v: number) {
-        this.r_a = v >> 8;
-        this.r_f = v & 0xff;
+    private set r_af(v: number) {
+        this.r_a = v & 0xff;
+        this.r_f = v >> 8;
     }
 
-    private get bc() {
-        return (this.r_b << 16) | this.r_c;
+    private get r_bc() {
+        return (this.r_c << 8) | this.r_b;
     }
 
-    private set bc(v: number) {
-        this.r_b = v >> 8;
-        this.r_c = v & 0xff;
+    private set r_bc(v: number) {
+        this.r_b = v & 0xff;
+        this.r_c = v >> 8;
     }
 
-    private get de() {
-        return (this.r_d << 16) | this.r_e;
+    private get r_de() {
+        return (this.r_e << 8) | this.r_d;
     }
 
-    private set de(v: number) {
-        this.r_d = v >> 8;
-        this.r_e = v & 0xff;
+    private set r_de(v: number) {
+        this.r_d = v & 0xff;
+        this.r_e = v >> 8;
+    }
+
+    private get r_hl() {
+        return (this.r_l << 8) | this.r_h;
+    }
+
+    private set r_hl(v: number) {
+        this.r_h = v & 0xff;
+        this.r_l = v >> 8;
     }
 
     private instr: { (): void; } [] = new Array(0xff);
