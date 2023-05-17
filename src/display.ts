@@ -1,18 +1,9 @@
 import { Memory } from "./memory";
-import * as memory from "./memory";
 
 export class Display {
     private canvas: HTMLCanvasElement;
     private ctx: CanvasRenderingContext2D;
     private mem: Memory;
-
-    // Window X and Y
-    public r_wx: number;
-    public r_wy: number;
-
-    // Background scroll X and scroll Y
-    public r_scx: number;
-    public r_scy: number;
 
     constructor(mem: Memory) {
         this.mem = mem;

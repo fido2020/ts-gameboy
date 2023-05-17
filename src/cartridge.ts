@@ -1,3 +1,5 @@
+import { Memory } from "./memory"
+
 enum SystemType {
     Gameboy = 0,
     GameboyColor = 0x80
@@ -51,9 +53,13 @@ export class Cartridge {
         let titleData = data.slice(CART_OFFSET_TITLE, CART_TITLE_END);
         this.title = new TextDecoder("ascii").decode(titleData);
 
-        this.type = data[CART_OFFSET_TYPE]
-        this.romSize = data[CART_OFFSET_ROM_SIZE]
-        this.ramSize = data[CART_OFFSET_RAM_SIZE]
+        this.type = data[CART_OFFSET_TYPE];
+        this.romSize = data[CART_OFFSET_ROM_SIZE];
+        this.ramSize = data[CART_OFFSET_RAM_SIZE];
+    }
+
+    load(mem: Memory) {
+        mem.rom_bank0 = this.data.slice(0, 0x4000);
     }
 
     public data: Uint8Array;
