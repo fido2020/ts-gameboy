@@ -53,12 +53,13 @@ export class CPU {
         this.r_sp = 0;
         this.r_f = 0;
 
+        this.r_ime = 0;
         this.pending_ints = 0;
     }
 
     run() {
-        let interrupts = (this.mem.interrupt_flag & this.pending_ints);
-        if (this.mem.int_enable && interrupts) {
+        let interrupts = (this.mem.int_flag & this.mem.int_en);
+        if (this.r_ime && interrupts) {
             if (interrupts & IRQBit.VBlank) {
                 this.handle_interrupt(IRQ.VBlank);
             } else if (interrupts & IRQBit.LCDCStatus) {
@@ -74,10 +75,10 @@ export class CPU {
 
         let opcode = this.mem.read_byte(this.r_pc);
 
-        console.log(`pc: ${ this.r_pc.toString(16) }, op: ${ opcode.toString(16) }`);
-        console.log(`a: ${ this.r_a.toString(16) }, b: ${ this.r_b.toString(16) }, \
-c: ${this.r_c.toString(16)}, d: ${this.r_d.toString(16)}, e: ${this.r_e.toString(16)}, \
-h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
+        //console.log(`pc: ${ this.r_pc.toString(16) }, op: ${ opcode.toString(16) }`);
+        //console.log(`a: ${ this.r_a.toString(16) }, b: ${ this.r_b.toString(16) }, \
+//c: ${this.r_c.toString(16)}, d: ${this.r_d.toString(16)}, e: ${this.r_e.toString(16)}, \
+//h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
 
         this.pc_inc(1);
 
@@ -86,7 +87,14 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
             throw new Error(`Unimplemented opcode: ${opcode}`)
         }
 
-        op.call(this);
+        // EI and DI enable/disable interrupts after the NEXT instruction,
+        // check if we need to en/disable ints after this instruction
+        if(this.pending_int_enable != this.r_ime) {
+            op.call(this);
+            this.r_ime = this.pending_int_enable;
+        } else {
+            op.call(this);
+        }
     }
 
     handle_interrupt(irq: number) {
@@ -101,19 +109,19 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
     send_interrupt(irq: number) {
         switch(irq) {
         case IRQ.VBlank:
-            this.pending_ints |= IRQBit.VBlank;
+            this.mem.int_flag |= IRQBit.VBlank;
             break;
         case IRQ.LCDCStatus:
-            this.pending_ints |= IRQBit.LCDCStatus;
+            this.mem.int_flag |= IRQBit.LCDCStatus;
             break;
         case IRQ.SerialTransfer:
-            this.pending_ints |= IRQBit.SerialTransfer;
+            this.mem.int_flag |= IRQBit.SerialTransfer;
             break;
         case IRQ.TimerOverflow:
-            this.pending_ints |= IRQBit.TimerOverflow;
+            this.mem.int_flag |= IRQBit.TimerOverflow;
             break;
         case IRQ.Joypad:
-            this.pending_ints |= IRQBit.Joypad;
+            this.mem.int_flag |= IRQBit.Joypad;
             break;
         default:
             throw new Error("Unknown interrupt!");
@@ -237,11 +245,11 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
     }
 
     op_di() {
-
+        this.pending_int_enable = 0;
     }
 
     op_ei() {
-        
+        this.pending_int_enable = 1;
     }
 
     op_rst_00() {
@@ -355,6 +363,22 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
 
     op_inc_sp() {
         this.r_sp = (this.r_sp + 1) & 0xffff;
+    }
+
+    op_dec_bc() {
+        this.r_bc = (this.r_bc - 1) & 0xffff;
+    }
+
+    op_dec_de() {
+        this.r_de = (this.r_de - 1) & 0xffff;
+    }
+
+    op_dec_hl() {
+        this.r_hl = (this.r_hl - 1) & 0xffff;
+    }
+
+    op_dec_sp() {
+        this.r_sp = (this.r_sp - 1) & 0xffff;
     }
 
     op_add_hl_bc() {
@@ -879,6 +903,7 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
     // Stores A at $0xff00 + n
     op_ldh_m_n_a() {
         let addr = 0xff00 + this.mem.read_byte(this.r_pc);
+        console.log("ldh: " + addr.toString(16));
         this.pc_inc(1);
 
         this.mem.write_byte(addr, this.r_a); 
@@ -889,6 +914,20 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         this.pc_inc(1);
 
         this.r_a = this.mem.read_byte(addr);
+    }
+
+    op_ld_m_c_a() {
+        let addr = 0xff00 + this.r_c;
+        console.log("ld: " + addr.toString(16));
+
+        this.mem.write_byte(addr, this.r_a); 
+    }
+
+    op_ld_a_m_c() {
+        let addr = 0xff00 + this.r_c;
+        console.log("ld: " + addr.toString(16));
+
+        this.r_a = this.mem.read_byte(addr); 
     }
 
     // Bit shifts and rotations
@@ -1561,6 +1600,9 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
 
     private mem: Memory;
 
+    // Interrupt master enable
+    private r_ime: number;
+
     private r_a: number;
     private r_f: number;
 
@@ -1577,6 +1619,7 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
     public r_pc: number;
 
     private pending_ints: number = 0;
+    private pending_int_enable: number = 0;
 
     private get r_af() {
         return (this.r_f << 8) | this.r_a;
@@ -1629,6 +1672,7 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         this.instr[0x07] = this.op_rlca;
         this.instr[0x08] = this.op_ld_m_nn_sp;
         this.instr[0x09] = this.op_add_hl_bc;
+        this.instr[0x0b] = this.op_dec_bc;
         this.instr[0x0c] = this.op_inc_c;
         this.instr[0x0d] = this.op_dec_c;
         this.instr[0x0e] = this.op_ld_c_n;
@@ -1642,6 +1686,7 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         this.instr[0x17] = this.op_rla;
         this.instr[0x18] = this.op_jr_n;
         this.instr[0x19] = this.op_add_hl_de;
+        this.instr[0x1b] = this.op_dec_de;
         this.instr[0x1c] = this.op_inc_e;
         this.instr[0x1d] = this.op_dec_e;
         this.instr[0x1e] = this.op_ld_e_n;
@@ -1656,6 +1701,7 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         this.instr[0x28] = this.op_jr_z;
         this.instr[0x29] = this.op_add_hl_hl;
         this.instr[0x2a] = this.op_ldi_a_m_hl;
+        this.instr[0x2b] = this.op_dec_hl;
         this.instr[0x2c] = this.op_inc_l;
         this.instr[0x2d] = this.op_dec_l;
         this.instr[0x2e] = this.op_ld_l_n;
@@ -1669,6 +1715,7 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         this.instr[0x36] = this.op_ld_m_hl_n;
         this.instr[0x38] = this.op_jr_c;
         this.instr[0x39] = this.op_add_hl_sp;
+        this.instr[0x3b] = this.op_dec_sp;
         this.instr[0x3c] = this.op_inc_a;
         this.instr[0x3d] = this.op_dec_a;
         this.instr[0x3e] = this.op_ld_a_n;
@@ -1837,6 +1884,7 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         this.instr[0xdf] = this.op_rst_18;
 
         this.instr[0xe0] = this.op_ldh_m_n_a;
+        this.instr[0xe2] = this.op_ld_m_c_a;
         this.instr[0xe5] = this.op_push_hl;
         this.instr[0xe6] = this.op_and_a_d8;
         this.instr[0xe7] = this.op_rst_20;
@@ -1845,11 +1893,14 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         this.instr[0xef] = this.op_rst_28;
 
         this.instr[0xf0] = this.op_ldh_a_m_n;
+        this.instr[0xf2] = this.op_ld_a_m_c;
+        this.instr[0xf3] = this.op_di;
         this.instr[0xf5] = this.op_push_af;
         this.instr[0xf6] = this.op_or_a_d8;
         this.instr[0xf7] = this.op_rst_30;
         this.instr[0xf9] = this.op_ld_sp_hl;
         this.instr[0xfa] = this.op_ld_a_m_nn;
+        this.instr[0xfb] = this.op_ei;
         this.instr[0xfe] = this.op_cp_a_d8;
         this.instr[0xff] = this.op_rst_38;
     }
