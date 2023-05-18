@@ -25,6 +25,38 @@ enum IOPort {
     TMA = 0xFF06, // Timer modulo
     TAC = 0xFF07, // Timer control
     IF = 0xFF0F, // Interrupt flag
+    // Sound registers
+    NR10 = 0xFF10,
+    NR11 = 0xFF11,
+    NR12 = 0xFF12,
+    NR13 = 0xFF13,
+    NR14 = 0xFF14,
+    NR21 = 0xFF16,
+    NR22 = 0xFF17,
+    NR23 = 0xFF18,
+    NR24 = 0xFF19,
+    NR30 = 0xFF1A,
+    NR31 = 0xFF1B,
+    NR32 = 0xFF1C,
+    NR33 = 0xFF1D,
+    NR34 = 0xFF1E,
+    NR41 = 0xFF20,
+    NR42 = 0xFF21,
+    NR43 = 0xFF22,
+    NR44 = 0xFF23,
+    NR50 = 0xFF24,
+    NR51 = 0xFF25,
+    NR52 = 0xFF26,
+    // Video registers
+    LCDC = 0xFF40,
+    STAT = 0xFF41, // LCD status
+    SCY = 0xFF42, // Viewport Y
+    SCX = 0xFF43, // X
+    LY = 0xFF44,
+    LYC = 0xFF45,
+
+    // Interrupt enable
+    IE = 0xFFFF,
 }
 
 export class Memory {
@@ -33,6 +65,7 @@ export class Memory {
 
         this.internal_mem = new Uint8Array(GB_INTERNAL_MEM_SZ);
         this.video_mem = new Uint8Array(GB_INTERNAL_VMEM_SZ);
+        this.high_mem = new Uint8Array(0xFFFF - 0xFF80);
 
         this.sprite_mem = new Array<Sprite>(GB_SPRITE_COUNT);
         this.sprite_mem.fill({ x: 0, y: 0, patternNum: 0, flags: 0 });
@@ -73,11 +106,22 @@ export class Memory {
                     break;
             }
         } else if (0xFF00 <= address && address < 0xFF4C) {
-            // TODO: I/O ports
+            switch(address) {
+            case IOPort.P1:
+            case IOPort.SB:
+            case IOPort.SC:
+            case IOPort.DIV:
+            case IOPort.TIMA:
+            case IOPort.TAC:
+            case IOPort.IF:
+            default:
+                console.log("warning: I/O port unimplemented: " + address.toString(16));
+                break;
+            }
         } else if (address >= 0xFF80 && address < 0xFFFF) {
-            // TODO: Apparently more internal ram here???
-        } else if(address == 0xFFFF) {
-            this.int_enable = value;
+            this.high_mem[address - 0xFF80] = value;
+        } else if(address == IOPort.IE) {
+            console.log("Write to IME: " + value.toString(16));
         }
     }
 
@@ -111,13 +155,32 @@ export class Memory {
                     return this.sprite_mem[index].flags;
             }
         } else if (0xFF00 <= address && address < 0xFF4C) {
-            // TODO: I/O ports
-            return 0xFF;
+            switch(address) {
+            case IOPort.IF:
+                console.log(`IF: ${ this.int_flag.toString(16) }`);
+                return this.int_flag;
+            case IOPort.LY:
+                console.log(`LY: ${ this.lcd_y }`);
+                return this.lcd_y;
+            case IOPort.STAT:
+                console.log(`STAT: ${ this.lcd_status.toString(16) }`);
+                return this.lcd_status;
+            case IOPort.P1:
+            case IOPort.SB:
+            case IOPort.SC:
+            case IOPort.DIV:
+            case IOPort.TIMA:
+            case IOPort.TAC:
+            default:
+                console.log("warning: I/O port unimplemented: " + address.toString(16) + ", attempted to write: " + value.toString(16));
+                return 0xFF;
+            }
         } else if (address >= 0xFF80 && address < 0xFFFF) {
-            // TODO: Apparently more internal ram here???
-            return 0xFF;
+            return this.high_mem[address - 0xFF80];
+        } else if (address == 0xFFFF) {
+            return this.int_en;
         } else {
-            return 0xFF;
+            throw new Error("Unknown address: " + address.toString(16));
         }
     }
 
@@ -142,23 +205,32 @@ export class Memory {
     // 0x8000-0xA000 Video memory
     public video_mem: Uint8Array;
 
+    // 0xFF80-0xFFFF High memory
+    public high_mem: Uint8Array;
+
     public sprite_mem: Sprite[];
 
-    // 0xFFFF Interrupt enable flag
-    public int_enable: number;
-
     // 0xFF04 timer divider
-    public timer_div: number;
+    public timer_div: number = 0;
 
     // 0xFF05 timer counter
-    public timer_counter: number;
+    public timer_counter: number = 0;
 
     // 0xFF06 timer modulo
-    public timer_mod: number;
+    public timer_mod: number = 0;
 
     // FF07
-    public timer_ctl: number;
+    public timer_ctl: number = 0;
 
     // 0xFF0F interrupt flag
-    public interrupt_flag: number;
+    public int_flag: number = 0;
+    // 0xFFFF interrupt enable
+    public int_en: number = 0;
+
+    // LCD Y (current scanline being drawn) - RO
+    public lcd_y: number = 0;
+    // LCD Y compare (if LYC = LY, a bit is set in the stat register)
+    public lyc: number = 0;
+
+    public lcd_status: number = 0;
 };
