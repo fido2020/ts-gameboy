@@ -16,6 +16,22 @@ enum FlagsRegister {
     C = (1 << 4) // Carry flag
 };
 
+export enum IRQ {
+    VBlank = 0x40,
+    LCDCStatus = 0x48,
+    TimerOverflow = 0x50,
+    SerialTransfer = 0x58,
+    Joypad = 0x60
+};
+
+enum IRQBit {
+    VBlank = 1,
+    LCDCStatus = 2,
+    TimerOverflow = 4,
+    SerialTransfer = 8,
+    Joypad = 0x10,
+};
+
 export class CPU {
     constructor(mem: Memory) {
         this.mem = mem;
@@ -36,16 +52,33 @@ export class CPU {
 
         this.r_sp = 0;
         this.r_f = 0;
+
+        this.pending_ints = 0;
     }
 
     run() {
+        let interrupts = (this.mem.interrupt_flag & this.pending_ints);
+        if (this.mem.int_enable && interrupts) {
+            if (interrupts & IRQBit.VBlank) {
+                this.handle_interrupt(IRQ.VBlank);
+            } else if (interrupts & IRQBit.LCDCStatus) {
+                this.handle_interrupt(IRQ.LCDCStatus);
+            } else if (interrupts & IRQBit.TimerOverflow) {
+                this.handle_interrupt(IRQ.TimerOverflow);
+            } else if (interrupts & IRQBit.SerialTransfer) {
+                this.handle_interrupt(IRQ.SerialTransfer);
+            } else if (interrupts & IRQBit.Joypad) {
+                this.handle_interrupt(IRQ.Joypad);
+            }
+        }
+
         let opcode = this.mem.read_byte(this.r_pc)
         this.pc_inc(1);
 
         console.log(`pc: ${ this.r_pc.toString(16) }, op: ${ opcode.toString(16) }`);
-        console.log(`a: ${ this.r_a.toString(16) }, b: ${ this.r_b.toString(16) }, \
-c: ${this.r_c.toString(16)}, d: ${this.r_d.toString(16)}, e: ${this.r_e.toString(16)}, \
-h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
+        //console.log(`a: ${ this.r_a.toString(16) }, b: ${ this.r_b.toString(16) }, \
+//c: ${this.r_c.toString(16)}, d: ${this.r_d.toString(16)}, e: ${this.r_e.toString(16)}, \
+//h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
 
         let op = this.instr[opcode];
         if(op == this.op_stub) {
@@ -53,6 +86,37 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         }
 
         op.call(this);
+    }
+
+    handle_interrupt(irq: number) {
+        // Save the PC on the stack
+        this.sp_inc(-2);
+        this.mem.write_word(this.r_sp, this.r_pc);
+
+        this.r_pc = irq;
+        this.mem.int_enable = 0;
+    }
+
+    send_interrupt(irq: number) {
+        switch(irq) {
+        case IRQ.VBlank:
+            this.pending_ints |= IRQBit.VBlank;
+            break;
+        case IRQ.LCDCStatus:
+            this.pending_ints |= IRQBit.LCDCStatus;
+            break;
+        case IRQ.SerialTransfer:
+            this.pending_ints |= IRQBit.SerialTransfer;
+            break;
+        case IRQ.TimerOverflow:
+            this.pending_ints |= IRQBit.TimerOverflow;
+            break;
+        case IRQ.Joypad:
+            this.pending_ints |= IRQBit.Joypad;
+            break;
+        default:
+            throw new Error("Unknown interrupt!");
+        }
     }
 
     pc_inc(n: number) {
@@ -163,6 +227,46 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
 
     op_nop() {
 
+    }
+
+    op_di() {
+
+    }
+
+    op_ei() {
+        
+    }
+
+    op_rst_00() {
+        this.r_pc = 0;
+    }
+
+    op_rst_08() {
+        this.r_pc = 0x8;
+    }
+
+    op_rst_10() {
+        this.r_pc = 0x10;
+    }
+
+    op_rst_18() {
+        this.r_pc = 0x18;
+    }
+
+    op_rst_20() {
+        this.r_pc = 0x20;
+    }
+
+    op_rst_28() {
+        this.r_pc = 0x28;
+    }
+
+    op_rst_30() {
+        this.r_pc = 0x30;
+    }
+
+    op_rst_38() {
+        this.r_pc = 0x38;
     }
 
     // 16-bit
@@ -331,6 +435,106 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         this.sp_inc(2);
     }
 
+    // CALL instructions
+    op_call_nn() {
+        let addr = this.mem.read_word(this.r_pc);
+        this.pc_inc(2)
+        
+        this.sp_inc(-2)
+        this.mem.write_word(this.r_sp, this.r_pc);
+
+        this.r_pc = addr;
+    }
+
+    op_call_nz_nn() {
+        let addr = this.mem.read_word(this.r_pc);
+        this.pc_inc(2)
+        
+        if((~this.r_f) & FlagsRegister.Z) {
+            this.sp_inc(-2)
+            this.mem.write_word(this.r_sp, this.r_pc);
+
+            this.r_pc = addr;
+        }
+    }
+
+    op_call_z_nn() {
+        let addr = this.mem.read_word(this.r_pc);
+        this.pc_inc(2)
+        
+        if(this.r_f & FlagsRegister.Z) {
+            this.sp_inc(-2)
+            this.mem.write_word(this.r_sp, this.r_pc);
+
+            this.r_pc = addr;
+        }
+    }
+
+    op_call_nc_nn() {
+        let addr = this.mem.read_word(this.r_pc);
+        this.pc_inc(2)
+        
+        if((~this.r_f) & FlagsRegister.C) {
+            this.sp_inc(-2)
+            this.mem.write_word(this.r_sp, this.r_pc);
+
+            this.r_pc = addr;
+        }
+    }
+
+    op_call_c_nn() {
+        let addr = this.mem.read_word(this.r_pc);
+        this.pc_inc(2)
+        
+        if(this.r_f & FlagsRegister.C) {
+            this.sp_inc(-2)
+            this.mem.write_word(this.r_sp, this.r_pc);
+
+            this.r_pc = addr;
+        }
+    }
+
+    op_ret() {
+        this.r_pc = this.mem.read_word(this.r_sp);
+        this.sp_inc(2);
+    }
+
+    op_reti() {
+        // Jump then enable interrupts
+        this.r_pc = this.mem.read_word(this.r_sp);
+        this.sp_inc(2);
+
+        this.mem.int_enable = 1;
+    }
+
+    op_ret_nz() {
+        if((~this.r_f) & FlagsRegister.Z) {
+            this.r_pc = this.mem.read_word(this.r_sp);
+            this.sp_inc(2);
+        }
+    }
+
+    op_ret_z() {
+        if(this.r_f & FlagsRegister.Z) {
+            this.r_pc = this.mem.read_word(this.r_sp);
+            this.sp_inc(2);
+        }
+    }
+
+    op_ret_nc() {
+        if((~this.r_f) & FlagsRegister.C) {
+            this.r_pc = this.mem.read_word(this.r_sp);
+            this.sp_inc(2);
+        }
+    }
+
+    op_ret_c() {
+        if(this.r_f & FlagsRegister.C) {
+            this.r_pc = this.mem.read_word(this.r_sp);
+            this.sp_inc(2);
+        }
+    }
+
     // 8-bit
     op_ld_b_n() {
         let v = this.mem.read_byte(this.r_pc);
@@ -372,6 +576,13 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         this.pc_inc(1);
 
         this.r_l = v;
+    }
+
+    op_ld_a_n() {
+        let v = this.mem.read_byte(this.r_pc);
+        this.pc_inc(1);
+
+        this.r_a = v;
     }
 
     // LD a, r
@@ -631,6 +842,46 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
 
     op_ld_m_hl_a() {
         this.mem.write_byte(this.r_hl, this.r_a);
+    }
+
+    op_ld_m_hl_n() {
+        let v = this.mem.read_byte(this.r_pc);
+        this.pc_inc(1);
+
+        this.mem.write_byte(this.r_hl, v);
+    }
+
+    // LD (nn), A
+    op_ld_m_nn_a() {
+        let addr = this.mem.read_word(this.r_pc);
+        this.pc_inc(2);
+
+        this.mem.write_word(addr, this.r_a);
+    }
+
+    // LD A, (nn)
+    op_ld_a_m_nn() {
+        let addr = this.mem.read_word(this.r_pc);
+        this.pc_inc(2);
+
+        this.r_a = this.mem.read_word(addr);
+    }
+
+    // LDH
+
+    // Stores A at $0xff00 + n
+    op_ldh_m_n_a() {
+        let addr = 0xff00 + this.mem.read_byte(this.r_pc);
+        this.pc_inc(1);
+
+        this.r_a = this.mem.read_byte(addr);
+    }
+
+    op_ldh_a_m_n() {
+        let addr = 0xff00 + this.mem.read_byte(this.r_pc);
+        this.pc_inc(1);
+
+        this.mem.write_byte(addr, this.r_a);
     }
 
     // Bit shifts and rotations
@@ -1318,6 +1569,8 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
     private r_sp: number;
     public r_pc: number;
 
+    private pending_ints: number = 0;
+
     private get r_af() {
         return (this.r_f << 8) | this.r_a;
     }
@@ -1406,10 +1659,12 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         this.instr[0x33] = this.op_inc_sp;
         this.instr[0x34] = this.op_inc_m_hl;
         this.instr[0x35] = this.op_dec_m_hl;
+        this.instr[0x36] = this.op_ld_m_hl_n;
         this.instr[0x38] = this.op_jr_c;
         this.instr[0x39] = this.op_add_hl_sp;
         this.instr[0x3c] = this.op_inc_a;
         this.instr[0x3d] = this.op_dec_a;
+        this.instr[0x3e] = this.op_ld_a_n;
 
         this.instr[0x40] = this.op_ld_b_b;
         this.instr[0x41] = this.op_ld_b_c;
@@ -1546,17 +1801,49 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         this.instr[0xbe] = this.op_cp_a_m_hl;
         this.instr[0xbf] = this.op_cp_a_a;
 
+        this.instr[0xc0] = this.op_ret_nz;
+        this.instr[0xc1] = this.op_pop_bc;
         this.instr[0xc2] = this.op_jp_nz_nn;
         this.instr[0xc3] = this.op_jp_nn;
+        this.instr[0xc4] = this.op_call_nz_nn;
+        this.instr[0xc5] = this.op_push_bc;
         this.instr[0xc6] = this.op_add_a_d8;
+        this.instr[0xc7] = this.op_rst_00;
+        this.instr[0xc8] = this.op_ret_z;
+        this.instr[0xc9] = this.op_ret;
         this.instr[0xca] = this.op_jp_z_nn;
+        this.instr[0xcc] = this.op_call_z_nn;
+        this.instr[0xcd] = this.op_call_nn;
         this.instr[0xce] = this.op_adc_a_d8;
+        this.instr[0xcf] = this.op_rst_08;
 
+        this.instr[0xd0] = this.op_ret_nc;
+        this.instr[0xd1] = this.op_pop_de;
         this.instr[0xd2] = this.op_jp_nc_nn;
+        this.instr[0xd4] = this.op_call_nc_nn;
+        this.instr[0xd5] = this.op_push_de;
+        this.instr[0xd7] = this.op_rst_10;
+        this.instr[0xd8] = this.op_ret_c;
+        this.instr[0xd9] = this.op_reti;
         this.instr[0xda] = this.op_jp_c_nn;
+        this.instr[0xdc] = this.op_call_c_nn;
+        this.instr[0xdf] = this.op_rst_18;
 
+        this.instr[0xe0] = this.op_ldh_m_n_a;
+        this.instr[0xe5] = this.op_push_hl;
         this.instr[0xe6] = this.op_and_a_d8;
+        this.instr[0xe7] = this.op_rst_20;
+        this.instr[0xea] = this.op_ld_m_nn_a;
+        this.instr[0xee] = this.op_xor_a_d8;
+        this.instr[0xef] = this.op_rst_28;
+
+        this.instr[0xf0] = this.op_ldh_a_m_n;
+        this.instr[0xf5] = this.op_push_af;
         this.instr[0xf6] = this.op_or_a_d8;
+        this.instr[0xf7] = this.op_rst_30;
         this.instr[0xf9] = this.op_ld_sp_hl;
+        this.instr[0xfa] = this.op_ld_a_m_nn;
+        this.instr[0xfe] = this.op_cp_a_d8;
+        this.instr[0xff] = this.op_rst_38;
     }
 };
