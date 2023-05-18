@@ -73,7 +73,7 @@ export class CPU {
         }
 
         let opcode = this.mem.read_byte(this.r_pc);
-        
+
         console.log(`pc: ${ this.r_pc.toString(16) }, op: ${ opcode.toString(16) }`);
         console.log(`a: ${ this.r_a.toString(16) }, b: ${ this.r_b.toString(16) }, \
 c: ${this.r_c.toString(16)}, d: ${this.r_d.toString(16)}, e: ${this.r_e.toString(16)}, \
@@ -179,9 +179,12 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
             this.r_f |= FlagsRegister.H;
         }
 
-        let result = low + (v & 0xf0);
+        let result = (low + (v & 0xf0)) & 0xff;
+        if(result == 0) {
+            this.r_f |= FlagsRegister.Z;
+        }
 
-        return result & 0xff;
+        return result;
     }
 
     alu_perform_dec(v: number): number {
@@ -193,9 +196,12 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
             this.r_f |= FlagsRegister.H;
         }
 
-        let result = low + (v & 0xf0);
+        let result = (low + (v & 0xf0)) & 0xff;
+        if(result == 0) {
+            this.r_f |= FlagsRegister.Z;
+        }
 
-        return result & 0xff;
+        return result;
     }
 
     alu_perform_add_carry(l: number, r: number): number {
@@ -1539,7 +1545,7 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         let n = this.mem.read_byte(this.r_pc);
         this.pc_inc(1);
 
-        if((~this.r_c) & FlagsRegister.C) {
+        if((~this.r_f) & FlagsRegister.C) {
             this.r_pc = this.r_pc + (n << 24 >> 24);
         }
     }
@@ -1548,7 +1554,7 @@ h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
         let n = this.mem.read_byte(this.r_pc);
         this.pc_inc(1);
 
-        if(this.r_c & FlagsRegister.C) {
+        if(this.r_f & FlagsRegister.C) {
             this.r_pc = this.r_pc + (n << 24 >> 24);
         }
     }
