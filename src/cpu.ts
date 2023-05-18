@@ -72,13 +72,14 @@ export class CPU {
             }
         }
 
-        let opcode = this.mem.read_byte(this.r_pc)
-        this.pc_inc(1);
-
+        let opcode = this.mem.read_byte(this.r_pc);
+        
         console.log(`pc: ${ this.r_pc.toString(16) }, op: ${ opcode.toString(16) }`);
-        //console.log(`a: ${ this.r_a.toString(16) }, b: ${ this.r_b.toString(16) }, \
-//c: ${this.r_c.toString(16)}, d: ${this.r_d.toString(16)}, e: ${this.r_e.toString(16)}, \
-//h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
+        console.log(`a: ${ this.r_a.toString(16) }, b: ${ this.r_b.toString(16) }, \
+c: ${this.r_c.toString(16)}, d: ${this.r_d.toString(16)}, e: ${this.r_e.toString(16)}, \
+h: ${this.r_h.toString(16)}, l: ${this.r_l.toString(16)}`);
+
+        this.pc_inc(1);
 
         let op = this.instr[opcode];
         if(op == this.op_stub) {
@@ -874,14 +875,14 @@ export class CPU {
         let addr = 0xff00 + this.mem.read_byte(this.r_pc);
         this.pc_inc(1);
 
-        this.r_a = this.mem.read_byte(addr);
+        this.mem.write_byte(addr, this.r_a); 
     }
 
     op_ldh_a_m_n() {
         let addr = 0xff00 + this.mem.read_byte(this.r_pc);
         this.pc_inc(1);
 
-        this.mem.write_byte(addr, this.r_a);
+        this.r_a = this.mem.read_byte(addr);
     }
 
     // Bit shifts and rotations
@@ -1509,46 +1510,46 @@ export class CPU {
 
     op_jr_n() {
         let n = this.mem.read_byte(this.r_pc);
-        // Subtract one since the program counter has already been incremented
+        this.pc_inc(1);
 
         // Do some javascript fuckery to make n signed,
         // bitwise operations are 32-bit so force a sign extension
-        this.r_pc = this.r_pc - 1 + (n << 24 >> 24);
+        this.r_pc = this.r_pc + (n << 24 >> 24);
     }
 
     op_jr_nz() {
         let n = this.mem.read_byte(this.r_pc);
+        this.pc_inc(1);
+
         if((~this.r_f) & FlagsRegister.Z) {
-            this.r_pc = this.r_pc - 1 + (n << 24 >> 24);
-        } else {
-            this.pc_inc(1);
+            this.r_pc = this.r_pc + (n << 24 >> 24);
         }
     }
 
     op_jr_z() {
         let n = this.mem.read_byte(this.r_pc);
+        this.pc_inc(1);
+
         if(this.r_f & FlagsRegister.Z) {
-            this.r_pc = this.r_pc - 1 + (n << 24 >> 24);
-        } else {
-            this.pc_inc(1);
+            this.r_pc = this.r_pc + (n << 24 >> 24);
         }
     }
 
     op_jr_nc() {
         let n = this.mem.read_byte(this.r_pc);
+        this.pc_inc(1);
+
         if((~this.r_c) & FlagsRegister.C) {
-            this.r_pc = this.r_pc - 1 + (n << 24 >> 24);
-        } else {
-            this.pc_inc(1);
+            this.r_pc = this.r_pc + (n << 24 >> 24);
         }
     }
 
     op_jr_c() {
         let n = this.mem.read_byte(this.r_pc);
+        this.pc_inc(1);
+
         if(this.r_c & FlagsRegister.C) {
-            this.r_pc = this.r_pc - 1 + (n << 24 >> 24);
-        } else {
-            this.pc_inc(1);
+            this.r_pc = this.r_pc + (n << 24 >> 24);
         }
     }
 
