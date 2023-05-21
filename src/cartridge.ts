@@ -56,10 +56,14 @@ export class Cartridge {
         this.type = data[CART_OFFSET_TYPE];
         this.romSize = data[CART_OFFSET_ROM_SIZE];
         this.ramSize = data[CART_OFFSET_RAM_SIZE];
+
+        console.log(`cartridge '${this.title}, type '${CartridgeType[this.type]}' (${this.type}), \
+ROM size '${ROMSize[this.romSize]}', RAM size '${RAMSize[this.ramSize]}'`);
     }
 
     load(mem: Memory) {
         mem.rom_bank0 = this.data.slice(0, 0x4000);
+        mem.rom_switchable = this.data.slice(0x4000, 0x8000);
     }
 
     public data: Uint8Array;

@@ -35,6 +35,8 @@ enum IRQBit {
 export class CPU {
     constructor(mem: Memory) {
         this.mem = mem;
+        mem.cpu = this;
+
         this.initialize_instr();
 
         this.initialize();
@@ -42,16 +44,16 @@ export class CPU {
 
     initialize() {
         this.r_pc = 0x100;
-        this.r_a = 0;
+        this.r_a = 1;
         this.r_b = 0;
-        this.r_c = 0;
+        this.r_c = 0x13;
         this.r_d = 0;
-        this.r_e = 0;
-        this.r_h = 0;
-        this.r_l = 0;
+        this.r_e = 0xd8;
+        this.r_h = 0x1;
+        this.r_l = 0x4d;
 
-        this.r_sp = 0;
-        this.r_f = 0;
+        this.r_sp = 0xfffe;
+        this.r_f = FlagsRegister.Z;
 
         this.r_ime = 0;
         this.pending_ints = 0;
@@ -61,14 +63,20 @@ export class CPU {
         let interrupts = (this.mem.int_flag & this.mem.int_en);
         if (this.r_ime && interrupts) {
             if (interrupts & IRQBit.VBlank) {
+                this.mem.int_flag &= ~(IRQBit.VBlank);
+                console.log("handling vblank! IF:" + this.mem.int_flag.toString(16));
                 this.handle_interrupt(IRQ.VBlank);
             } else if (interrupts & IRQBit.LCDCStatus) {
+                this.mem.int_flag &= ~(IRQBit.LCDCStatus);
                 this.handle_interrupt(IRQ.LCDCStatus);
             } else if (interrupts & IRQBit.TimerOverflow) {
+                this.mem.int_flag &= ~(IRQBit.TimerOverflow);
                 this.handle_interrupt(IRQ.TimerOverflow);
             } else if (interrupts & IRQBit.SerialTransfer) {
+                this.mem.int_flag &= ~(IRQBit.SerialTransfer);
                 this.handle_interrupt(IRQ.SerialTransfer);
             } else if (interrupts & IRQBit.Joypad) {
+                this.mem.int_flag &= ~(IRQBit.Joypad);
                 this.handle_interrupt(IRQ.Joypad);
             }
         }
@@ -103,7 +111,7 @@ export class CPU {
         this.mem.write_word(this.r_sp, this.r_pc);
 
         this.r_pc = irq;
-        this.mem.int_enable = 0;
+        this.r_ime = 0;
     }
 
     send_interrupt(irq: number) {
@@ -161,12 +169,11 @@ export class CPU {
         let low = (l & 0xf) - (r & 0xf);
 
         this.r_f = 0;
-        if (low & 0x10) {
+        if (low < 0) {
             this.r_f |= FlagsRegister.H;
         }
 
-        let high = ((l >> 8) & 0xf) - ((r >> 8) & 0xf);
-        if (high & 0x10) {
+        if (l - r < 0) {
             this.r_f |= FlagsRegister.C;
         }
 
@@ -187,7 +194,7 @@ export class CPU {
             this.r_f |= FlagsRegister.H;
         }
 
-        let result = (low + (v & 0xf0)) & 0xff;
+        let result = (v + 1) & 0xff;
         if(result == 0) {
             this.r_f |= FlagsRegister.Z;
         }
@@ -200,11 +207,11 @@ export class CPU {
 
         // Carry isn't affected!
         this.r_f = (this.r_f & FlagsRegister.C) | FlagsRegister.N;
-        if (low & 0x10) {
+        if (low < 0) {
             this.r_f |= FlagsRegister.H;
         }
 
-        let result = (low + (v & 0xf0)) & 0xff;
+        let result = (v - 1) & 0xff;
         if(result == 0) {
             this.r_f |= FlagsRegister.Z;
         }
@@ -213,7 +220,7 @@ export class CPU {
     }
 
     alu_perform_add_carry(l: number, r: number): number {
-        let low = (l & 0xf) + (l & 0xf);
+        let low = (l & 0xf) + (r & 0xf);
         if (this.r_f & FlagsRegister.C) {
             low += 1;
         }
@@ -236,8 +243,38 @@ export class CPU {
         return result;
     }
 
-    op_stub() {
+    alu_perform_sub_carry(l: number, r: number): number {
+        let low = (l & 0xf) - (r & 0xf);
         
+        let c = this.r_f & FlagsRegister.C;
+        if (c) {
+            low -= 1;
+        }
+
+        this.r_f = 0;
+        if (low < 0) {
+            this.r_f |= FlagsRegister.H;
+        }
+
+        let high = ((l >> 8) & 0xf) - ((r >> 8) & 0xf);
+        if (high < 0) {
+            this.r_f |= FlagsRegister.C;
+        }
+
+        let result = (l - r - (c ? 1 : 0)) & 0xff;
+        if(result == 0) {
+            this.r_f |= FlagsRegister.Z;
+        }
+
+        return result;
+    }
+
+    op_stub() {
+        throw new Error();
+    }
+
+    cb_stub(v: number): number {
+        throw new Error();
     }
 
     op_nop() {
@@ -253,35 +290,111 @@ export class CPU {
     }
 
     op_rst_00() {
+        this.sp_inc(-2);
+        this.mem.write_word(this.r_sp, this.r_pc);
+
         this.r_pc = 0;
     }
 
     op_rst_08() {
+        this.sp_inc(-2);
+        this.mem.write_word(this.r_sp, this.r_pc);
+
         this.r_pc = 0x8;
     }
 
     op_rst_10() {
+        this.sp_inc(-2);
+        this.mem.write_word(this.r_sp, this.r_pc);
+
         this.r_pc = 0x10;
     }
 
     op_rst_18() {
+        this.sp_inc(-2);
+        this.mem.write_word(this.r_sp, this.r_pc);
+
         this.r_pc = 0x18;
     }
 
     op_rst_20() {
+        this.sp_inc(-2);
+        this.mem.write_word(this.r_sp, this.r_pc);
+
         this.r_pc = 0x20;
     }
 
     op_rst_28() {
+        this.sp_inc(-2);
+        this.mem.write_word(this.r_sp, this.r_pc);
+
         this.r_pc = 0x28;
     }
 
     op_rst_30() {
+        this.sp_inc(-2);
+        this.mem.write_word(this.r_sp, this.r_pc);
+
         this.r_pc = 0x30;
     }
 
     op_rst_38() {
+        this.sp_inc(-2);
+        this.mem.write_word(this.r_sp, this.r_pc);
+
         this.r_pc = 0x38;
+    }
+
+    // DAA - Decimal adjust A
+    // Weird instruction - modfiies the last addition or subtraction to treat the number as a 
+    // BCD number. 
+    op_daa() {
+        // To be a valid BCD, each nibble must be within the range of 0-9.
+        // If it is greater than 9, add 6 to carry to the next nibble
+        if(this.r_f & FlagsRegister.N) {
+            // Nibbles >= 0xa only occur when there was a borrow
+            if(this.r_f & FlagsRegister.C) {
+                this.r_a -= 0x60;
+            }
+
+            if(this.r_f & FlagsRegister.H) {
+                this.r_a -= 0x6;
+            }
+        } else {
+            // We check for 0x99 as if A is say 0x9a, then after the lower nibble is adjusted,
+            // the upper nibble will be in the 0xa-0xf range (not a valid BCD)
+            if((this.r_f & FlagsRegister.C) || this.r_a >= 0x99) {
+                this.r_a += 0x60;
+
+                // Set carry if not already set
+                this.r_f |= FlagsRegister.C;
+            }
+
+            if(this.r_f & FlagsRegister.H || (this.r_a & 0xf) >= 0xa) {
+                this.r_a += 0x6;
+            }
+        }
+
+        // Only preserve the carry and subtract flag
+        this.r_f = this.r_f & (FlagsRegister.C | FlagsRegister.N);
+        if(this.r_a == 0) {
+            this.r_f |= FlagsRegister.Z;
+        }
+    }
+
+    // SCF - set carry flag
+    op_scf() {
+        // Only preserve the zero flag
+        this.r_f = (this.r_f & FlagsRegister.Z) | FlagsRegister.C;
+    }
+
+    op_cpl() {
+        this.r_a = ~this.r_a;
+    }
+
+    // Complement carry flag
+    op_ccf() {
+        this.r_f = (this.r_f & FlagsRegister.Z) | ((~this.r_f) & FlagsRegister.C);
     }
 
     // 16-bit
@@ -321,11 +434,27 @@ export class CPU {
         let n = this.mem.read_byte(this.r_pc);
         this.pc_inc(1);
 
-        this.r_hl = (this.r_sp + n) & 0xffff;
+        this.r_hl = (this.r_sp + (n << 24 >> 24)) & 0xffff;
 
         // We need to set the C and H flags
         this.alu_perform_add(this.r_sp & 0xff, n);
         this.r_f &= (FlagsRegister.C | FlagsRegister.H);
+    }
+
+    op_ld_m_bc_a() {
+        this.mem.write_byte(this.r_bc, this.r_a);
+    }
+    
+    op_ld_m_de_a() {
+        this.mem.write_byte(this.r_de, this.r_a);
+    }
+
+    op_ld_a_m_bc() {
+        this.r_a = this.mem.read_byte(this.r_bc);
+    }
+    
+    op_ld_a_m_de() {
+        this.r_a = this.mem.read_byte(this.r_de);
     }
 
     op_ldd_m_hl_a() {
@@ -334,8 +463,20 @@ export class CPU {
         this.r_hl = (this.r_hl - 1) & 0xffff;
     }
 
+    op_ldi_m_hl_a() {
+        // Store A at (HL) and increment HL
+        this.op_ld_m_hl_a()
+        this.r_hl = (this.r_hl + 1) & 0xffff;
+    }
+
+    op_ldd_a_m_hl() {
+        // Store (HL) in A and decrement HL
+        this.op_ld_a_m_hl()
+        this.r_hl = (this.r_hl - 1) & 0xffff;
+    }
+
     op_ldi_a_m_hl() {
-        // Store HL in A and increment HL
+        // Store (HL) in A and increment HL
         this.op_ld_a_m_hl()
         this.r_hl = (this.r_hl + 1) & 0xffff;
     }
@@ -382,45 +523,45 @@ export class CPU {
     }
 
     op_add_hl_bc() {
-        this.r_hl = (this.r_hl + this.r_bc) & 0xffff;
-
         let fl = (this.r_f & FlagsRegister.Z);
 
         // Check for carry from bits 11 and 15
-        this.alu_perform_add(this.r_l, this.r_c);
+        this.alu_perform_add(this.r_h, this.r_b);
+
+        this.r_hl = (this.r_hl + this.r_bc) & 0xffff;
 
         this.r_f = fl | (this.r_f & (FlagsRegister.C | FlagsRegister.H));
     }
 
     op_add_hl_de() {
-        this.r_hl = (this.r_hl + this.r_de) & 0xffff;
-
         let fl = (this.r_f & FlagsRegister.Z);
 
         // Check for carry from bits 11 and 15
-        this.alu_perform_add(this.r_l, this.r_e);
+        this.alu_perform_add(this.r_h, this.r_d);
+
+        this.r_hl = (this.r_hl + this.r_de) & 0xffff;
 
         this.r_f = fl | (this.r_f & (FlagsRegister.C | FlagsRegister.H));
     }
 
     op_add_hl_hl() {
-        this.r_hl = (this.r_hl + this.r_hl) & 0xffff;
-
         let fl = (this.r_f & FlagsRegister.Z);
 
         // Check for carry from bits 11 and 15
-        this.alu_perform_add(this.r_l, this.r_l);
+        this.alu_perform_add(this.r_h, this.r_h);
+
+        this.r_hl = (this.r_hl + this.r_hl) & 0xffff;
 
         this.r_f = fl | (this.r_f & (FlagsRegister.C | FlagsRegister.H));
     }
 
     op_add_hl_sp() {
-        this.r_hl = (this.r_hl + this.r_sp) & 0xffff;
-
         let fl = (this.r_f & FlagsRegister.Z);
 
         // Check for carry from bits 11 and 15
-        this.alu_perform_add(this.r_l, (this.r_sp >> 8));
+        this.alu_perform_add(this.r_h, (this.r_sp >> 8));
+
+        this.r_hl = (this.r_hl + this.r_sp) & 0xffff;
 
         this.r_f = fl | (this.r_f & (FlagsRegister.C | FlagsRegister.H));
     }
@@ -469,9 +610,9 @@ export class CPU {
     // CALL instructions
     op_call_nn() {
         let addr = this.mem.read_word(this.r_pc);
-        this.pc_inc(2)
-        
-        this.sp_inc(-2)
+        this.pc_inc(2);
+
+        this.sp_inc(-2);
         this.mem.write_word(this.r_sp, this.r_pc);
 
         this.r_pc = addr;
@@ -535,7 +676,7 @@ export class CPU {
         this.r_pc = this.mem.read_word(this.r_sp);
         this.sp_inc(2);
 
-        this.mem.int_enable = 1;
+        this.r_ime = 1;
     }
 
     op_ret_nz() {
@@ -903,7 +1044,6 @@ export class CPU {
     // Stores A at $0xff00 + n
     op_ldh_m_n_a() {
         let addr = 0xff00 + this.mem.read_byte(this.r_pc);
-        console.log("ldh: " + addr.toString(16));
         this.pc_inc(1);
 
         this.mem.write_byte(addr, this.r_a); 
@@ -918,14 +1058,12 @@ export class CPU {
 
     op_ld_m_c_a() {
         let addr = 0xff00 + this.r_c;
-        console.log("ld: " + addr.toString(16));
 
         this.mem.write_byte(addr, this.r_a); 
     }
 
     op_ld_a_m_c() {
         let addr = 0xff00 + this.r_c;
-        console.log("ld: " + addr.toString(16));
 
         this.r_a = this.mem.read_byte(addr); 
     }
@@ -934,31 +1072,12 @@ export class CPU {
 
     // Rotate A
     op_rlca() {
-        this.r_f = 0;
-
-        // The old value of bit 7 goes into the carry
-        this.r_f = (this.r_a & (1 << 7)) ? FlagsRegister.C : 0;
-
-        // Old MSB of A moves to the LSB
-        this.r_a = ((this.r_a << 1) | (this.r_a >> 7)) & 0xff;
-
-        this.r_f |= this.r_a ? 0 : FlagsRegister.Z;
+        this.r_a = this.op_cb_rlc(this.r_a);
     }
 
     // Rotate throug carry A
     op_rla() {
-        this.r_f = 0;
-
-        let carry = this.r_f & FlagsRegister.C;
-
-        // The old value of bit 7 goes into the carry
-        this.r_f = (this.r_a & (1 << 7)) ? FlagsRegister.C : 0;
-
-        this.r_a = (this.r_a << 1) & 0xff;
-        // Old value of the carry goes into A
-        this.r_a |= carry ? 1 : 0;
-
-        this.r_f |= this.r_a ? 0 : FlagsRegister.Z;
+        this.r_a = this.op_cb_rl(this.r_a);
     }
 
     // Rotate A
@@ -1106,23 +1225,23 @@ export class CPU {
 
     // ALU operations - sub
     op_sub_a_b() {
-        this.r_a = this.alu_perform_sub(this.r_a, -this.r_b);
+        this.r_a = this.alu_perform_sub(this.r_a, this.r_b);
     }
 
     op_sub_a_c() {
-        this.r_a = this.alu_perform_sub(this.r_a, -this.r_c);
+        this.r_a = this.alu_perform_sub(this.r_a, this.r_c);
     }
 
     op_sub_a_d() {
-        this.r_a = this.alu_perform_sub(this.r_a, -this.r_d);
+        this.r_a = this.alu_perform_sub(this.r_a, this.r_d);
     }
 
     op_sub_a_e() {
-        this.r_a = this.alu_perform_sub(this.r_a, -this.r_e);
+        this.r_a = this.alu_perform_sub(this.r_a, this.r_e);
     }
 
     op_sub_a_h() {
-        this.r_a = this.alu_perform_sub(this.r_a, -this.r_h);
+        this.r_a = this.alu_perform_sub(this.r_a, this.r_h);
     }
 
     op_sub_a_l() {
@@ -1147,7 +1266,6 @@ export class CPU {
     }
 
     // ALU operations - add with carry
-
     op_adc_a_b() {
         this.r_a = this.alu_perform_add_carry(this.r_a, this.r_b);
     }
@@ -1189,9 +1307,47 @@ export class CPU {
         this.r_a = this.alu_perform_add_carry(this.r_a, d8);
     }
 
-    // ALU operations - subtract
-
     // ALU operations - subtract with carry
+    op_sbc_a_b() {
+        this.r_a = this.alu_perform_sub_carry(this.r_a, this.r_b);
+    }
+
+    op_sbc_a_c() {
+        this.r_a = this.alu_perform_sub_carry(this.r_a, this.r_c);
+    }
+
+    op_sbc_a_d() {
+        this.r_a = this.alu_perform_sub_carry(this.r_a, this.r_d);
+    }
+
+    op_sbc_a_e() {
+        this.r_a = this.alu_perform_sub_carry(this.r_a, this.r_e);
+    }
+
+    op_sbc_a_h() {
+        this.r_a = this.alu_perform_sub_carry(this.r_a, this.r_h);
+    }
+
+    op_sbc_a_l() {
+        this.r_a = this.alu_perform_sub_carry(this.r_a, this.r_l);
+    }
+
+    op_sbc_a_m_hl() {
+        let addr = this.mem.read_byte(this.r_hl);
+
+        this.r_a = this.alu_perform_sub_carry(this.r_a, addr);
+    }
+
+    op_sbc_a_a() {
+        this.r_a = this.alu_perform_sub_carry(this.r_a, this.r_a);
+    }
+
+    op_sbc_a_d8() {
+        let d8 = this.mem.read_byte(this.r_pc);
+        this.pc_inc(1);
+
+        this.r_a = this.alu_perform_add_carry(this.r_a, d8);
+    }
 
     // ALU operations - AND
     op_and_a_b() {
@@ -1370,46 +1526,32 @@ export class CPU {
     // ALU operations - CP
     op_cp_a_b() {
         this.alu_perform_sub(this.r_a, this.r_b);
-        // The C and H flags are inverted as opposed to a SUB instruction
-        this.r_f = this.r_f ^ (FlagsRegister.C | FlagsRegister.H);
     }
 
     op_cp_a_c() {
         this.alu_perform_sub(this.r_a, this.r_c);
-        // The C and H flags are inverted as opposed to a SUB instruction
-        this.r_f = this.r_f ^ (FlagsRegister.C | FlagsRegister.H);
     }
 
     op_cp_a_d() {
         this.alu_perform_sub(this.r_a, this.r_d);
-        // The C and H flags are inverted as opposed to a SUB instruction
-        this.r_f = this.r_f ^ (FlagsRegister.C | FlagsRegister.H);
     }
 
     op_cp_a_e() {
         this.alu_perform_sub(this.r_a, this.r_e);
-        // The C and H flags are inverted as opposed to a SUB instruction
-        this.r_f = this.r_f ^ (FlagsRegister.C | FlagsRegister.H);
     }
 
     op_cp_a_h() {
         this.alu_perform_sub(this.r_a, this.r_h);
-        // The C and H flags are inverted as opposed to a SUB instruction
-        this.r_f = this.r_f ^ (FlagsRegister.C | FlagsRegister.H);
     }
 
     op_cp_a_l() {
         this.alu_perform_sub(this.r_a, this.r_l);
-        // The C and H flags are inverted as opposed to a SUB instruction
-        this.r_f = this.r_f ^ (FlagsRegister.C | FlagsRegister.H);
     }
 
     op_cp_a_m_hl() {
         let v = this.mem.read_byte(this.r_hl);
 
         this.alu_perform_sub(this.r_a, v);
-        // The C and H flags are inverted as opposed to a SUB instruction
-        this.r_f = this.r_f ^ (FlagsRegister.C | FlagsRegister.H);
     }
 
     op_cp_a_d8() {
@@ -1417,12 +1559,10 @@ export class CPU {
         this.pc_inc(1);
 
         this.alu_perform_sub(this.r_a, n);
-        // The C and H flags are inverted as opposed to a SUB instruction
-        this.r_f = this.r_f ^ (FlagsRegister.C | FlagsRegister.H);
     }
 
     op_cp_a_a() {
-        this.r_f = FlagsRegister.Z | FlagsRegister.H | FlagsRegister.C | FlagsRegister.N;
+        this.alu_perform_sub(this.r_a, this.r_a);
     }
 
     // ALU operations - XOR
@@ -1598,73 +1738,275 @@ export class CPU {
         }
     }
 
+    // Rotate 
+    op_cb_rlc(v: number): number {
+        this.r_f = 0;
+
+        // The old value of bit 7 goes into the carry
+        this.r_f = (v & (1 << 7)) ? FlagsRegister.C : 0;
+
+        // Old MSB of A moves to the LSB
+        v = ((v << 1) | (v >> 7)) & 0xff;
+
+        this.r_f |= v ? 0 : FlagsRegister.Z;
+        return v;
+    }
+
+    // Rotate through carry
+    op_cb_rl(v: number): number {
+        this.r_f = 0;
+
+        let carry = this.r_f & FlagsRegister.C;
+
+        // The old value of bit 7 goes into the carry
+        this.r_f = (v & (1 << 7)) ? FlagsRegister.C : 0;
+
+        v = (v << 1) & 0xff;
+        // Old value of the carry goes into A
+        v |= carry ? 1 : 0;
+
+        this.r_f |= v ? 0 : FlagsRegister.Z;
+        return v;
+    }
+
+    // Shift left into carry
+    op_cb_sla(v: number): number {
+        // The old value of bit 7 goes into the carry
+        this.r_f = (v & (1 << 7)) ? FlagsRegister.C : 0;
+        v = (v << 1) & 0xff;
+
+        this.r_f |= v ? 0 : FlagsRegister.Z;
+        return v;
+    }
+
+    // Swap upper and lower nibbles
+    op_cb_swap(v: number): number {
+        if (v == 0) {
+            this.r_f = FlagsRegister.Z;
+        } else {
+            v = ((v & 0xf) << 4) | (v >> 4);
+            this.r_f = 0;    
+        }
+
+        return v;
+    }
+
+    op_cb_res0(v: number): number {
+        return v & ~(1 << 0);
+    }
+
+    op_cb_res1(v: number): number {
+        return v & ~(1 << 1);
+    }
+
+    op_cb_res2(v: number): number {
+        return v & ~(1 << 2);
+    }
+
+    op_cb_res3(v: number): number {
+        return v & ~(1 << 3);
+    }
+
+    op_cb_res4(v: number): number {
+        return v & ~(1 << 4);
+    }
+
+    op_cb_res5(v: number): number {
+        return v & ~(1 << 5);
+    }
+
+    op_cb_res6(v: number): number {
+        return v & ~(1 << 6);
+    }
+
+    op_cb_res7(v: number): number {
+        return v & ~(1 << 7);
+    }
+
+    op_cb_set0(v: number): number {
+        return v | (1 << 0);
+    }
+
+    op_cb_set1(v: number): number {
+        return v | (1 << 1);
+    }
+
+    op_cb_set2(v: number): number {
+        return v | (1 << 2);
+    }
+
+    op_cb_set3(v: number): number {
+        return v | (1 << 3);
+    }
+
+    op_cb_set4(v: number): number {
+        return v | (1 << 4);
+    }
+
+    op_cb_set5(v: number): number {
+        return v | (1 << 5);
+    }
+
+    op_cb_set6(v: number): number {
+        return v | (1 << 6);
+    }
+
+    op_cb_set7(v: number): number {
+        return v | (1 << 7);
+    }
+
+    op_cb_bit(v: number, b: number): void {
+        this.r_f = FlagsRegister.H;
+        if((~this.r_f) & (1 << b)) {
+            this.r_f |= FlagsRegister.Z;
+        }
+    }
+
+    op_cb() {
+        let opcode = this.mem.read_byte(this.r_pc);
+        this.pc_inc(1);
+
+        if((opcode & 0xf0) >= 0x40 && (opcode & 0xf0) <= 0x70) {
+            // Ok a bit going on here, opcodes 0x4x-0x7x are bit test instructions,
+            // to test bit 0 the instruction is 0x4x, where x is 0-7
+            // to test bit 1 the insturction is 0x4x, where x is from 8-15
+            // 2 and 3 are 0x5x, and so on
+            let bit = (opcode >> 4) & 0x3 + ((opcode >> 3) & 1);
+            
+            switch(opcode & 0x7) {
+            case 0x0:
+                this.op_cb_bit(this.r_b, bit);
+                break;
+            case 0x1:
+                this.op_cb_bit(this.r_c, bit);
+                break;
+            case 0x2:
+                this.op_cb_bit(this.r_d, bit);
+                break;
+            case 0x3:
+                this.op_cb_bit(this.r_e, bit);
+                break;
+            case 0x4:
+                this.op_cb_bit(this.r_h, bit);
+                break;
+            case 0x5:
+                this.op_cb_bit(this.r_l, bit);
+                break;
+            case 0x6:
+                let v = this.mem.read_byte(this.r_hl);
+                this.op_cb_bit(v, bit);
+                break;
+            case 0x7:
+                this.op_cb_bit(this.r_a, bit);
+                break;
+            }
+        } else {
+            let op = this.cb_instr[opcode >> 4 | ((opcode & 0x8) << 1)];
+            if(op == this.cb_stub) {
+                throw new Error(`Unimplemented CB prefix opcode: ${opcode}`)
+            }
+
+            switch(opcode & 0x7) {
+            case 0x0:
+                this.r_b = op.call(this, this.r_b);
+                break;
+            case 0x1:
+                this.r_c = op.call(this, this.r_c);
+                break;
+            case 0x2:
+                this.r_d = op.call(this, this.r_d);
+                break;
+            case 0x3:
+                this.r_e = op.call(this, this.r_e);
+                break;
+            case 0x4:
+                this.r_h = op.call(this, this.r_h);
+                break;
+            case 0x5:
+                this.r_l = op.call(this, this.r_l);
+                break;
+            case 0x6:
+                let v = this.mem.read_byte(this.r_hl);
+                this.mem.write_byte(this.r_hl, op.call(this, v));
+                break;
+            case 0x7:
+                this.r_a = op.call(this, this.r_a);
+                break;
+            }
+        }
+    }
+
     private mem: Memory;
 
     // Interrupt master enable
     private r_ime: number;
 
-    private r_a: number;
-    private r_f: number;
+    public r_a: number;
+    public r_f: number;
 
-    private r_b: number;
-    private r_c: number;
+    public r_b: number;
+    public r_c: number;
     
-    private r_d: number;
-    private r_e: number;
+    public r_d: number;
+    public r_e: number;
 
-    private r_h: number;
-    private r_l: number;
+    public r_h: number;
+    public r_l: number;
 
-    private r_sp: number;
+    public r_sp: number;
     public r_pc: number;
 
     private pending_ints: number = 0;
     private pending_int_enable: number = 0;
 
+    // Apparently the registers are given in big-endian order wtf
     private get r_af() {
-        return (this.r_f << 8) | this.r_a;
+        return (this.r_a << 8) | this.r_f;
     }
 
     private set r_af(v: number) {
-        this.r_a = v & 0xff;
-        this.r_f = v >> 8;
+        this.r_f = v & 0xff;
+        this.r_a = v >> 8;
     }
 
     private get r_bc() {
-        return (this.r_c << 8) | this.r_b;
+        return (this.r_b << 8) | this.r_c;
     }
 
     private set r_bc(v: number) {
-        this.r_b = v & 0xff;
-        this.r_c = v >> 8;
+        this.r_c = v & 0xff;
+        this.r_b = v >> 8;
     }
 
     private get r_de() {
-        return (this.r_e << 8) | this.r_d;
+        return (this.r_d << 8) | this.r_e;
     }
 
     private set r_de(v: number) {
-        this.r_d = v & 0xff;
-        this.r_e = v >> 8;
+        this.r_e = v & 0xff;
+        this.r_d = v >> 8;
     }
 
     private get r_hl() {
-        return (this.r_l << 8) | this.r_h;
+        return (this.r_h << 8) | this.r_l;
     }
 
     private set r_hl(v: number) {
-        this.r_h = v & 0xff;
-        this.r_l = v >> 8;
+        this.r_l = v & 0xff;
+        this.r_h = v >> 8;
     }
 
-    private instr: { (): void; } [] = new Array(0xff);
+    private instr: { (): void; } [] = new Array(0x100);
+    private cb_instr: { (v: number): number; } [] = new Array(0x20);
 
     initialize_instr() {
         this.instr.fill(this.op_stub);
+        this.cb_instr.fill(this.cb_stub);
 
         this.instr[0] = this.op_nop;
 
         this.instr[0x01] = this.op_ld_bc_nn;
+        this.instr[0x02] = this.op_ld_m_bc_a;
         this.instr[0x03] = this.op_inc_bc;
         this.instr[0x04] = this.op_inc_b;
         this.instr[0x05] = this.op_dec_b;
@@ -1672,6 +2014,7 @@ export class CPU {
         this.instr[0x07] = this.op_rlca;
         this.instr[0x08] = this.op_ld_m_nn_sp;
         this.instr[0x09] = this.op_add_hl_bc;
+        this.instr[0x0a] = this.op_ld_a_m_bc;
         this.instr[0x0b] = this.op_dec_bc;
         this.instr[0x0c] = this.op_inc_c;
         this.instr[0x0d] = this.op_dec_c;
@@ -1679,6 +2022,7 @@ export class CPU {
         this.instr[0x0f] = this.op_rrca;
 
         this.instr[0x11] = this.op_ld_de_nn;
+        this.instr[0x12] = this.op_ld_m_de_a;
         this.instr[0x13] = this.op_inc_de;
         this.instr[0x14] = this.op_inc_d;
         this.instr[0x15] = this.op_dec_d;
@@ -1686,6 +2030,7 @@ export class CPU {
         this.instr[0x17] = this.op_rla;
         this.instr[0x18] = this.op_jr_n;
         this.instr[0x19] = this.op_add_hl_de;
+        this.instr[0x1a] = this.op_ld_a_m_de;
         this.instr[0x1b] = this.op_dec_de;
         this.instr[0x1c] = this.op_inc_e;
         this.instr[0x1d] = this.op_dec_e;
@@ -1694,10 +2039,12 @@ export class CPU {
 
         this.instr[0x20] = this.op_jr_nz;
         this.instr[0x21] = this.op_ld_hl_nn;
+        this.instr[0x22] = this.op_ldi_m_hl_a;
         this.instr[0x23] = this.op_inc_hl;
         this.instr[0x24] = this.op_inc_h;
         this.instr[0x25] = this.op_dec_h;
         this.instr[0x26] = this.op_ld_h_n;
+        this.instr[0x27] = this.op_daa;
         this.instr[0x28] = this.op_jr_z;
         this.instr[0x29] = this.op_add_hl_hl;
         this.instr[0x2a] = this.op_ldi_a_m_hl;
@@ -1705,6 +2052,7 @@ export class CPU {
         this.instr[0x2c] = this.op_inc_l;
         this.instr[0x2d] = this.op_dec_l;
         this.instr[0x2e] = this.op_ld_l_n;
+        this.instr[0x2f] = this.op_cpl;
 
         this.instr[0x30] = this.op_jr_nc;
         this.instr[0x31] = this.op_ld_sp_nn;
@@ -1713,12 +2061,15 @@ export class CPU {
         this.instr[0x34] = this.op_inc_m_hl;
         this.instr[0x35] = this.op_dec_m_hl;
         this.instr[0x36] = this.op_ld_m_hl_n;
+        this.instr[0x37] = this.op_scf;
         this.instr[0x38] = this.op_jr_c;
         this.instr[0x39] = this.op_add_hl_sp;
+        this.instr[0x3a] = this.op_ldd_a_m_hl;
         this.instr[0x3b] = this.op_dec_sp;
         this.instr[0x3c] = this.op_inc_a;
         this.instr[0x3d] = this.op_dec_a;
         this.instr[0x3e] = this.op_ld_a_n;
+        this.instr[0x3f] = this.op_ccf;
 
         this.instr[0x40] = this.op_ld_b_b;
         this.instr[0x41] = this.op_ld_b_c;
@@ -1819,6 +2170,15 @@ export class CPU {
         this.instr[0x96] = this.op_sub_a_m_hl;
         this.instr[0x97] = this.op_sub_a_a;
 
+        this.instr[0x98] = this.op_sbc_a_b;
+        this.instr[0x99] = this.op_sbc_a_c;
+        this.instr[0x9a] = this.op_sbc_a_d;
+        this.instr[0x9b] = this.op_sbc_a_e;
+        this.instr[0x9c] = this.op_sbc_a_h;
+        this.instr[0x9d] = this.op_sbc_a_l;
+        this.instr[0x9e] = this.op_sbc_a_m_hl;
+        this.instr[0x9f] = this.op_sbc_a_a;
+
         this.instr[0xa0] = this.op_and_a_b;
         this.instr[0xa1] = this.op_and_a_c;
         this.instr[0xa2] = this.op_and_a_d;
@@ -1866,6 +2226,7 @@ export class CPU {
         this.instr[0xc8] = this.op_ret_z;
         this.instr[0xc9] = this.op_ret;
         this.instr[0xca] = this.op_jp_z_nn;
+        this.instr[0xcb] = this.op_cb;
         this.instr[0xcc] = this.op_call_z_nn;
         this.instr[0xcd] = this.op_call_nn;
         this.instr[0xce] = this.op_adc_a_d8;
@@ -1884,15 +2245,18 @@ export class CPU {
         this.instr[0xdf] = this.op_rst_18;
 
         this.instr[0xe0] = this.op_ldh_m_n_a;
+        this.instr[0xe1] = this.op_pop_hl;
         this.instr[0xe2] = this.op_ld_m_c_a;
         this.instr[0xe5] = this.op_push_hl;
         this.instr[0xe6] = this.op_and_a_d8;
         this.instr[0xe7] = this.op_rst_20;
+        this.instr[0xe9] = this.op_jp_hl;
         this.instr[0xea] = this.op_ld_m_nn_a;
         this.instr[0xee] = this.op_xor_a_d8;
         this.instr[0xef] = this.op_rst_28;
 
         this.instr[0xf0] = this.op_ldh_a_m_n;
+        this.instr[0xf1] = this.op_pop_af;
         this.instr[0xf2] = this.op_ld_a_m_c;
         this.instr[0xf3] = this.op_di;
         this.instr[0xf5] = this.op_push_af;
@@ -1903,5 +2267,27 @@ export class CPU {
         this.instr[0xfb] = this.op_ei;
         this.instr[0xfe] = this.op_cp_a_d8;
         this.instr[0xff] = this.op_rst_38;
+    
+        this.cb_instr[0] = this.op_cb_rlc;
+        this.cb_instr[0x1] = this.op_cb_rl;
+        this.cb_instr[0x2] = this.op_cb_sla;
+        this.cb_instr[0x3] = this.op_cb_swap;
+        this.cb_instr[0x8] = this.op_cb_res0;
+        this.cb_instr[0x9] = this.op_cb_res2;
+        this.cb_instr[0xa] = this.op_cb_res4;
+        this.cb_instr[0xb] = this.op_cb_res6;
+        this.cb_instr[0xc] = this.op_cb_set0;
+        this.cb_instr[0xd] = this.op_cb_set2;
+        this.cb_instr[0xe] = this.op_cb_set4;
+        this.cb_instr[0xf] = this.op_cb_set6;
+
+        this.cb_instr[0x18] = this.op_cb_res1;
+        this.cb_instr[0x19] = this.op_cb_res3;
+        this.cb_instr[0x1a] = this.op_cb_res5;
+        this.cb_instr[0x1b] = this.op_cb_res7;
+        this.cb_instr[0x1c] = this.op_cb_set1;
+        this.cb_instr[0x1d] = this.op_cb_set3;
+        this.cb_instr[0x1e] = this.op_cb_set5;
+        this.cb_instr[0x1f] = this.op_cb_set7;
     }
 };

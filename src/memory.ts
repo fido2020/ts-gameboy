@@ -1,4 +1,5 @@
 import { Sprite } from "./video";
+import { CPU } from "./cpu"
 
 export const GB_INTERNAL_MEM_SZ: number = 8 * 0x1000;
 export const GB_COLOR_INTERNAL_MEM_SZ: number = 32 * 0x1000;
@@ -54,6 +55,7 @@ enum IOPort {
     SCX = 0xFF43, // X
     LY = 0xFF44,
     LYC = 0xFF45,
+    DMA = 0xFF46, // OAM DMA
 
     // Interrupt enable
     IE = 0xFFFF,
@@ -72,25 +74,29 @@ export class Memory {
     }
 
     write_byte(address: number, value: number) {
-        if (address < 0x4000) {9
+        if (address < 0x4000) {
             // Discard writes to ROM
+            console.log("warn: attempted to write to " + address.toString(16));
         } else if (address < 0x8000) {
             // TODO: switchable rom behaviour
+            console.log("warn: attempted to write to " + address.toString(16));
         } else if (address < 0xA000) {
-            console.log("writing to: " + address.toString(16))
             this.video_mem[address - 0x8000] = value;
         } else if (address < 0xC000) {
             // TODO: switchable ram behaviour
+            console.log(`warn: attempted to write to ${address.toString(16)}, PC: ${this.cpu.r_pc.toString(16)}`);
+            throw new Error();
         } else if (address < 0xE000) {
             this.internal_mem[address - 0xC000] = value;
         } else if (address < 0xFE00) {
             this.internal_mem[address - 0xE000] = value;
         } else if (address < 0xFEA0) {
             // Sprite attribute memory
+
             let index = (address & 0xff) >>> 2;
             let field = address & 0x3;
 
-            console.log("writing to OAM at: " + address.toString(16) + ", index: " + index.toString());
+            //console.log("writing to OAM at: " + address.toString(16) + ", index: " + index.toString());
             switch(field) {
                 case 0:
                     this.sprite_mem[index].x = value;
@@ -107,6 +113,22 @@ export class Memory {
             }
         } else if (0xFF00 <= address && address < 0xFF4C) {
             switch(address) {
+            case IOPort.LCDC:
+                this.lcd_control = value;
+                console.log(`LCDC write: ${ this.lcd_control.toString(16) }`);
+                break;
+            case IOPort.DMA:
+                console.log(`OAM DMA: ${value.toString(16)}`);
+                if(value >= 0xdf) {
+                    console.log("cannot do DMA (value > 0xDF)");
+                    break;
+                }
+
+                // This is a really unoptimized way to do this but oh well
+                for(let i = 0; i < 0xa0; i++) {
+                    this.write_byte(0xFE00 + i, this.read_byte((value << 8) | i));
+                }
+                break;
             case IOPort.P1:
             case IOPort.SB:
             case IOPort.SC:
@@ -115,13 +137,14 @@ export class Memory {
             case IOPort.TAC:
             case IOPort.IF:
             default:
-                console.log("warning: I/O port unimplemented: " + address.toString(16));
+                console.log("warning: I/O port unimplemented: " + address.toString(16) + ", attempted to write: " + value.toString(16));
                 break;
             }
         } else if (address >= 0xFF80 && address < 0xFFFF) {
             this.high_mem[address - 0xFF80] = value;
         } else if(address == IOPort.IE) {
-            console.log("Write to IME: " + value.toString(16));
+            console.log("Write to IE: " + value.toString(16));
+            this.int_en = value;
         }
     }
 
@@ -130,11 +153,12 @@ export class Memory {
             return this.rom_bank0[address];
         } else if (address < 0x8000) {
             // TODO: switchable rom behaviour
-            return 0xff;
+            return this.rom_switchable[address - 0x4000];
         } else if (address < 0xA000) {
             return this.video_mem[address - 0x8000];
         } else if (address < 0xC000) {
             // TODO: switchable ram behaviour
+            console.log("warn: attempted to read from " + address.toString(16));
             return 0xff;
         } else if (address < 0xE000) {
             return this.internal_mem[address - 0xC000];
@@ -142,7 +166,7 @@ export class Memory {
             return this.internal_mem[address - 0xE000];
         } else if (address < 0xFEA0) {
             // Sprite attribute memory
-            let index = (address >> 2) & 0x3f;
+            let index = (address & 0xff) >>> 2;
             let field = address & 0x3;
             switch(field) {
                 case 0:
@@ -160,8 +184,10 @@ export class Memory {
                 console.log(`IF: ${ this.int_flag.toString(16) }`);
                 return this.int_flag;
             case IOPort.LY:
-                console.log(`LY: ${ this.lcd_y }`);
                 return this.lcd_y;
+            case IOPort.LCDC:
+                console.log(`LCDC: ${ this.lcd_control.toString(16) }`);
+                return this.lcd_status;
             case IOPort.STAT:
                 console.log(`STAT: ${ this.lcd_status.toString(16) }`);
                 return this.lcd_status;
@@ -172,10 +198,13 @@ export class Memory {
             case IOPort.TIMA:
             case IOPort.TAC:
             default:
-                console.log("warning: I/O port unimplemented: " + address.toString(16) + ", attempted to write: " + value.toString(16));
+                console.log("warning: I/O port unimplemented: " + address.toString(16));
                 return 0xFF;
             }
         } else if (address >= 0xFF80 && address < 0xFFFF) {
+            if(address == 0xFF85 && this.high_mem[address - 0xFF80] != 0) {
+                console.log(`${address.toString(16)} is ${this.high_mem[address - 0xFF80]}`);
+            }
             return this.high_mem[address - 0xFF80];
         } else if (address == 0xFFFF) {
             return this.int_en;
@@ -233,4 +262,7 @@ export class Memory {
     public lyc: number = 0;
 
     public lcd_status: number = 0;
+    public lcd_control: number = 0x91;
+
+    public cpu: null | CPU;
 };
